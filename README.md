@@ -6,20 +6,10 @@ A Python library that simplifies applying cell borders to [openpyxl](https://ope
 
 ```bash
 # pip
-pip install git+https://github.com/jiez1812/xl_borders.git
+pip install xl_borders
 
 # uv
-uv add git+https://github.com/jiez1812/xl_borders.git
-```
-
-To pin a specific version:
-
-```bash
-# By tag
-pip install git+https://github.com/jiez1812/xl_borders.git@v0.1.0
-
-# By branch
-pip install git+https://github.com/jiez1812/xl_borders.git@main
+uv add xl_borders
 ```
 
 Requires Python 3.13+ and openpyxl.
