@@ -19,6 +19,12 @@ WEIGHT_STYLES: dict[int, str | None] = {0: None, 1: "thin", 2: "medium", 3: "thi
 #   (str, str)  - (style, color)
 type SideSpec = Side | str | tuple[str, str] | None
 
+# Accepted types for cell_range parameter:
+#   str                              - "A1:D5" or "B2"
+#   (int, int)                       - (row, col) single cell
+#   ((int, int), (int, int))         - ((min_row, min_col), (max_row, max_col))
+type CellRange = str | tuple[int, int] | tuple[tuple[int, int], tuple[int, int]]
+
 
 def _resolve_side(spec: SideSpec, base_color: str | None) -> Side | None:
     """Convert a SideSpec shorthand into a Side object.
@@ -37,9 +43,33 @@ def _resolve_side(spec: SideSpec, base_color: str | None) -> Side | None:
     raise TypeError(f"Expected Side, str, tuple, or None; got {type(spec).__name__}")
 
 
+def _parse_range(cell_range: CellRange) -> tuple[int, int, int, int]:
+    """Convert a CellRange into (min_col, min_row, max_col, max_row)."""
+    if isinstance(cell_range, str):
+        return range_boundaries(cell_range)
+    if (
+        isinstance(cell_range, tuple)
+        and len(cell_range) == 2
+        and isinstance(cell_range[0], int)
+    ):
+        row, col = cell_range
+        return col, row, col, row
+    if (
+        isinstance(cell_range, tuple)
+        and len(cell_range) == 2
+        and isinstance(cell_range[0], tuple)
+    ):
+        (min_row, min_col), (max_row, max_col) = cell_range
+        return min_col, min_row, max_col, max_row
+    raise TypeError(
+        f"cell_range must be str, (row, col), or ((row, col), (row, col)); "
+        f"got {cell_range!r}"
+    )
+
+
 def set_border(
     ws: Worksheet,
-    cell_range: str,
+    cell_range: CellRange,
     *,
     left: SideSpec = None,
     right: SideSpec = None,
@@ -71,7 +101,10 @@ def set_border(
 
     Args:
         ws: The openpyxl Worksheet to modify.
-        cell_range: Excel-style range string (e.g. "A1:D5", "B2", "A1:A1").
+        cell_range: Range to apply borders to. Accepts:
+            - ``str`` -- Excel-style range (e.g. ``"A1:D5"``, ``"B2"``)
+            - ``(row, col)`` -- single cell by row/col numbers
+            - ``((min_row, min_col), (max_row, max_col))`` -- numeric range
         left: Side spec for the left edge.
         right: Side spec for the right edge.
         top: Side spec for the top edge.
@@ -150,7 +183,7 @@ def set_border(
     s_ih = sides["inner_horizontal"]
     s_iv = sides["inner_vertical"]
 
-    min_col, min_row, max_col, max_row = range_boundaries(cell_range)
+    min_col, min_row, max_col, max_row = _parse_range(cell_range)
 
     for row in range(min_row, max_row + 1):
         for col in range(min_col, max_col + 1):
