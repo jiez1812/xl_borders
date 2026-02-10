@@ -374,3 +374,63 @@ class TestSideShorthand:
 
         assert ws["A1"].border.left.style == "double"
         assert ws["A1"].border.top.style == "medium"
+
+
+class TestNumericRange:
+    def test_single_cell_tuple(self, ws):
+        """(row, col) targets a single cell."""
+        set_border(ws, (2, 2))  # B2
+
+        cell = ws.cell(row=2, column=2)
+        assert cell.border.left.style == "thin"
+        assert cell.border.right.style == "thin"
+        assert cell.border.top.style == "thin"
+        assert cell.border.bottom.style == "thin"
+
+    def test_range_tuple(self, ws):
+        """((min_row, min_col), (max_row, max_col)) matches equivalent string."""
+        set_border(ws, ((1, 1), (3, 3)))  # A1:C3
+
+        # Same assertions as test_range_outer_edges
+        assert ws["A1"].border.left.style == "thin"
+        assert ws["A1"].border.top.style == "thin"
+        assert ws["C1"].border.right.style == "thin"
+        assert ws["C3"].border.bottom.style == "thin"
+
+        # Inner
+        center = ws["B2"]
+        assert center.border.left.style == "thin"
+        assert center.border.top.style == "thin"
+
+    def test_range_tuple_with_kwargs(self, ws):
+        """Numeric range works with all keyword params."""
+        set_border(ws, ((1, 1), (3, 3)), outline="medium", inside="dashed")
+
+        assert ws["A1"].border.left.style == "medium"
+        assert ws["A1"].border.top.style == "medium"
+
+        center = ws["B2"]
+        assert center.border.left.style == "dashed"
+        assert center.border.top.style == "dashed"
+
+    def test_numeric_matches_string(self, ws):
+        """Numeric range produces identical result to equivalent string range."""
+        wb2 = Workbook()
+        ws2 = wb2.active
+
+        set_border(ws, "A1:C3", style="thick")
+        set_border(ws2, ((1, 1), (3, 3)), style="thick")
+
+        for row in range(1, 4):
+            for col in range(1, 4):
+                b1 = ws.cell(row=row, column=col).border
+                b2 = ws2.cell(row=row, column=col).border
+                assert b1.left.style == b2.left.style
+                assert b1.right.style == b2.right.style
+                assert b1.top.style == b2.top.style
+                assert b1.bottom.style == b2.bottom.style
+
+    def test_invalid_type_raises(self, ws):
+        """Invalid cell_range type raises TypeError."""
+        with pytest.raises(TypeError, match="cell_range must be"):
+            set_border(ws, 42)  # type: ignore[arg-type]
