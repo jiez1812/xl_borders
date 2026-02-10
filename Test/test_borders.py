@@ -274,3 +274,103 @@ class TestCustomParam:
         """custom tuple with weight not in WEIGHT_STYLES raises ValueError."""
         with pytest.raises(ValueError, match="not a valid weight"):
             set_border(ws, "A1:C3", custom=(1, 2, 5, 1))
+
+
+class TestColorParam:
+    def test_color_applies_to_all_sides(self, ws):
+        """Base color is applied to every side."""
+        set_border(ws, "A1:C3", color="FF0000")
+
+        cell = ws["A1"]
+        assert cell.border.left.color.rgb == "00FF0000"
+        assert cell.border.top.color.rgb == "00FF0000"
+        assert cell.border.left.style == "thin"
+
+        center = ws["B2"]
+        assert center.border.left.color.rgb == "00FF0000"
+        assert center.border.top.color.rgb == "00FF0000"
+
+    def test_color_with_style(self, ws):
+        """color composes with style."""
+        set_border(ws, "B2", style="thick", color="0000FF")
+
+        cell = ws["B2"]
+        assert cell.border.left.style == "thick"
+        assert cell.border.left.color.rgb == "000000FF"
+
+    def test_color_with_custom(self, ws):
+        """color propagates through custom weights."""
+        set_border(ws, "A1:C3", custom=(3, 2, 3, 2, 1, 1), color="00FF00")
+
+        assert ws["A1"].border.top.style == "thick"
+        assert ws["A1"].border.top.color.rgb == "0000FF00"
+        assert ws["A1"].border.left.style == "medium"
+        assert ws["A1"].border.left.color.rgb == "0000FF00"
+
+        # Inner lines also get the color
+        center = ws["B2"]
+        assert center.border.top.style == "thin"
+        assert center.border.top.color.rgb == "0000FF00"
+
+    def test_color_with_outline(self, ws):
+        """color propagates through outline."""
+        set_border(ws, "A1:C3", outline="medium", color="FF0000")
+
+        assert ws["A1"].border.left.style == "medium"
+        assert ws["A1"].border.left.color.rgb == "00FF0000"
+
+    def test_no_color_by_default(self, ws):
+        """Without color param, sides have no color set."""
+        set_border(ws, "B2")
+
+        cell = ws["B2"]
+        assert cell.border.left.color is None
+
+
+class TestSideShorthand:
+    def test_str_shorthand(self, ws):
+        """A plain string sets the style, inheriting base color."""
+        set_border(ws, "A1:C3", left="thick", color="FF0000")
+
+        assert ws["A1"].border.left.style == "thick"
+        assert ws["A1"].border.left.color.rgb == "00FF0000"
+        # Other sides still default
+        assert ws["A1"].border.top.style == "thin"
+
+    def test_str_shorthand_no_base_color(self, ws):
+        """A plain string without base color produces a Side with no color."""
+        set_border(ws, "B2", left="thick")
+
+        cell = ws["B2"]
+        assert cell.border.left.style == "thick"
+        assert cell.border.left.color is None
+
+    def test_tuple_shorthand(self, ws):
+        """A (style, color) tuple sets both, ignoring base color."""
+        set_border(
+            ws, "A1:C3",
+            color="0000FF",
+            left=("thick", "FF0000"),
+        )
+
+        # left uses tuple color, not base color
+        assert ws["A1"].border.left.style == "thick"
+        assert ws["A1"].border.left.color.rgb == "00FF0000"
+
+        # Other sides use base color
+        assert ws["A1"].border.top.color.rgb == "000000FF"
+
+    def test_side_object_still_works(self, ws):
+        """Passing a Side object directly still works as before."""
+        set_border(ws, "B2", left=Side(style="double", color="00FF00"))
+
+        cell = ws["B2"]
+        assert cell.border.left.style == "double"
+        assert cell.border.left.color.rgb == "0000FF00"
+
+    def test_str_shorthand_overrides_outline(self, ws):
+        """String shorthand at layer 5 overrides outline at layer 3."""
+        set_border(ws, "A1:C3", outline="medium", left="double")
+
+        assert ws["A1"].border.left.style == "double"
+        assert ws["A1"].border.top.style == "medium"

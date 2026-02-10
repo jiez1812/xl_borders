@@ -1,5 +1,7 @@
 """Core border-building functions for openpyxl worksheets."""
 
+from __future__ import annotations
+
 from openpyxl.styles import Border, Side
 from openpyxl.utils import range_boundaries
 from openpyxl.worksheet.worksheet import Worksheet
@@ -11,18 +13,42 @@ DEFAULT_SIDE = THIN
 
 WEIGHT_STYLES: dict[int, str | None] = {0: None, 1: "thin", 2: "medium", 3: "thick"}
 
+# Shorthand type accepted for individual side params:
+#   Side        - full control
+#   str         - style name, inherits base color
+#   (str, str)  - (style, color)
+type SideSpec = Side | str | tuple[str, str] | None
+
+
+def _resolve_side(spec: SideSpec, base_color: str | None) -> Side | None:
+    """Convert a SideSpec shorthand into a Side object.
+
+    Returns None when *spec* is None (meaning "don't override").
+    """
+    if spec is None:
+        return None
+    if isinstance(spec, Side):
+        return spec
+    if isinstance(spec, str):
+        return Side(style=spec, color=base_color)
+    if isinstance(spec, tuple):
+        style, color = spec
+        return Side(style=style, color=color)
+    raise TypeError(f"Expected Side, str, tuple, or None; got {type(spec).__name__}")
+
 
 def set_border(
     ws: Worksheet,
     cell_range: str,
     *,
-    left: Side | None = None,
-    right: Side | None = None,
-    top: Side | None = None,
-    bottom: Side | None = None,
-    inner_horizontal: Side | None = None,
-    inner_vertical: Side | None = None,
+    left: SideSpec = None,
+    right: SideSpec = None,
+    top: SideSpec = None,
+    bottom: SideSpec = None,
+    inner_horizontal: SideSpec = None,
+    inner_vertical: SideSpec = None,
     style: str = "thin",
+    color: str | None = None,
     custom: tuple[int, ...] | None = None,
     outline: str | None = None,
     inside: str | None = None,
@@ -32,25 +58,29 @@ def set_border(
     """Apply borders to a rectangular cell range, similar to Excel VBA Range.Borders.
 
     Parameters resolve in layers (lowest to highest priority):
-        1. ``style`` -- base default for all 6 sides
+        1. ``style`` + ``color`` -- base default for all 6 sides
         2. ``custom`` -- tuple of weight ints overriding all 6 sides
-        3. ``outline`` -- overrides outer edges (left, right, top, bottom)
-        4. ``inside`` -- overrides inner lines (inner_horizontal, inner_vertical)
-        5. ``horizontal`` -- overrides top, bottom, inner_horizontal
-        6. ``vertical`` -- overrides left, right, inner_vertical
-        7. Individual ``Side`` params -- highest priority
+        3. ``outline`` / ``inside`` -- override outer / inner groups
+        4. ``horizontal`` / ``vertical`` -- override by orientation
+        5. Individual side params -- highest priority
+
+    Individual side params accept shorthand in addition to ``Side``:
+        - ``str`` -- style name (inherits base ``color``)
+        - ``(str, str)`` -- ``(style, color)`` tuple
+        - ``Side`` -- full control
 
     Args:
         ws: The openpyxl Worksheet to modify.
         cell_range: Excel-style range string (e.g. "A1:D5", "B2", "A1:A1").
-        left: Side for the left edge.
-        right: Side for the right edge.
-        top: Side for the top edge.
-        bottom: Side for the bottom edge.
-        inner_horizontal: Side for inner horizontal lines.
-        inner_vertical: Side for inner vertical lines.
+        left: Side spec for the left edge.
+        right: Side spec for the right edge.
+        top: Side spec for the top edge.
+        bottom: Side spec for the bottom edge.
+        inner_horizontal: Side spec for inner horizontal lines.
+        inner_vertical: Side spec for inner vertical lines.
         style: Default border style name applied to all sides.
             Common values: "thin", "thick", "medium", "dashed", "dotted", "double".
+        color: Default border color (hex string, e.g. "FF0000") applied to all sides.
         custom: Tuple of weight integers in CSS-like order:
             ``(top, right, bottom, left, inner_horizontal, inner_vertical)``.
             Length must be 4 (outer only; inner defaults to 0) or 6.
@@ -60,8 +90,8 @@ def set_border(
         horizontal: Style name applied to top, bottom, and inner_horizontal.
         vertical: Style name applied to left, right, and inner_vertical.
     """
-    # --- Layer 1: base default ---
-    sides: dict[str, Side] = {k: Side(style=style) for k in (
+    # --- Layer 1: base default (style + color) ---
+    sides: dict[str, Side] = {k: Side(style=style, color=color) for k in (
         "left", "right", "top", "bottom", "inner_horizontal", "inner_vertical",
     )}
 
@@ -81,36 +111,37 @@ def set_border(
         weights = custom + (0, 0) if len(custom) == 4 else custom
         keys = ("top", "right", "bottom", "left", "inner_horizontal", "inner_vertical")
         for k, w in zip(keys, weights):
-            sides[k] = Side(style=WEIGHT_STYLES[w])
+            sides[k] = Side(style=WEIGHT_STYLES[w], color=color)
 
     # --- Layer 3: outline / inside ---
     if outline is not None:
-        outline_side = Side(style=outline)
+        outline_side = Side(style=outline, color=color)
         for k in ("left", "right", "top", "bottom"):
             sides[k] = outline_side
     if inside is not None:
-        inside_side = Side(style=inside)
+        inside_side = Side(style=inside, color=color)
         for k in ("inner_horizontal", "inner_vertical"):
             sides[k] = inside_side
 
     # --- Layer 4: horizontal / vertical ---
     if horizontal is not None:
-        h_side = Side(style=horizontal)
+        h_side = Side(style=horizontal, color=color)
         for k in ("top", "bottom", "inner_horizontal"):
             sides[k] = h_side
     if vertical is not None:
-        v_side = Side(style=vertical)
+        v_side = Side(style=vertical, color=color)
         for k in ("left", "right", "inner_vertical"):
             sides[k] = v_side
 
-    # --- Layer 5: individual Side params (highest priority) ---
-    explicit: dict[str, Side | None] = {
+    # --- Layer 5: individual side params (highest priority) ---
+    explicit: dict[str, SideSpec] = {
         "left": left, "right": right, "top": top, "bottom": bottom,
         "inner_horizontal": inner_horizontal, "inner_vertical": inner_vertical,
     }
     for k, v in explicit.items():
-        if v is not None:
-            sides[k] = v
+        resolved = _resolve_side(v, base_color=color)
+        if resolved is not None:
+            sides[k] = resolved
 
     s_left = sides["left"]
     s_right = sides["right"]
