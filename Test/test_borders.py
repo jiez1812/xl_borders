@@ -2,7 +2,7 @@
 
 import pytest
 from openpyxl import Workbook
-from openpyxl.styles import Border, Side
+from openpyxl.styles import Border, Font, PatternFill, Side
 
 from xl_borders import set_border
 from xl_borders.borders import WEIGHT_STYLES
@@ -434,3 +434,122 @@ class TestNumericRange:
         """Invalid cell_range type raises TypeError."""
         with pytest.raises(TypeError, match="cell_range must be"):
             set_border(ws, 42)  # type: ignore[arg-type]
+
+
+class TestPreserveCellFormatting:
+    """set_border() must not overwrite font, fill, or alignment."""
+
+    def test_preserves_font(self, ws):
+        ws["B2"].font = Font(bold=True, color="FF0000", size=14)
+        set_border(ws, "A1:C3")
+
+        font = ws["B2"].font
+        assert font.bold is True
+        assert font.color.rgb == "00FF0000"
+        assert font.size == 14
+
+    def test_preserves_fill(self, ws):
+        ws["B2"].fill = PatternFill(fgColor="FFFF00", patternType="solid")
+        set_border(ws, "A1:C3")
+
+        fill = ws["B2"].fill
+        assert fill.fgColor.rgb == "00FFFF00"
+        assert fill.patternType == "solid"
+
+
+class TestPreserveBorderColor:
+    """Border color merging: preserve existing color when not specified."""
+
+    def test_preserves_color_when_no_color_param(self, ws):
+        """Existing red border -> set_border() without color -> red preserved."""
+        ws["B2"].border = Border(
+            left=Side(style="thin", color="FF0000"),
+            top=Side(style="thin", color="FF0000"),
+        )
+        set_border(ws, "B2")
+
+        cell = ws["B2"]
+        assert cell.border.left.style == "thin"
+        assert cell.border.left.color.rgb == "00FF0000"
+        assert cell.border.top.color.rgb == "00FF0000"
+
+    def test_overwrites_color_when_color_param_set(self, ws):
+        """Existing red border -> set_border(color='0000FF') -> blue."""
+        ws["B2"].border = Border(
+            left=Side(style="thin", color="FF0000"),
+        )
+        set_border(ws, "B2", color="0000FF")
+
+        cell = ws["B2"]
+        assert cell.border.left.style == "thin"
+        assert cell.border.left.color.rgb == "000000FF"
+
+    def test_preserves_color_with_style_change(self, ws):
+        """Change style but keep existing color when color param not set."""
+        ws["B2"].border = Border(
+            left=Side(style="thin", color="FF0000"),
+        )
+        set_border(ws, "B2", style="thick")
+
+        cell = ws["B2"]
+        assert cell.border.left.style == "thick"
+        assert cell.border.left.color.rgb == "00FF0000"
+
+    def test_tuple_shorthand_color_overrides_existing(self, ws):
+        """Explicit color in (style, color) tuple overrides existing."""
+        ws["B2"].border = Border(
+            left=Side(style="thin", color="FF0000"),
+        )
+        set_border(ws, "B2", left=("thick", "00FF00"))
+
+        cell = ws["B2"]
+        assert cell.border.left.style == "thick"
+        assert cell.border.left.color.rgb == "0000FF00"
+
+
+class TestPreserveExistingBorders:
+    """Existing borders are kept when set_border() doesn't configure that side."""
+
+    def test_custom_4_preserves_unset_inner_borders(self, ws):
+        """4-element custom sets outer only; existing inner borders preserved."""
+        # Pre-set inner borders on center cell
+        ws["B2"].border = Border(
+            left=Side(style="dashed", color="FF0000"),
+            top=Side(style="dashed", color="FF0000"),
+        )
+        set_border(ws, "A1:C3", custom=(3, 3, 3, 3))
+
+        # Outer edges set to thick
+        assert ws["A1"].border.left.style == "thick"
+        assert ws["A1"].border.top.style == "thick"
+
+        # Center cell: inner sides resolve to style=None -> existing preserved
+        center = ws["B2"]
+        assert center.border.left.style == "dashed"
+        assert center.border.left.color.rgb == "00FF0000"
+        assert center.border.top.style == "dashed"
+
+    def test_outline_only_preserves_existing_inner(self, ws):
+        """outline + no inside: inner lines keep default style, not cleared."""
+        ws["B2"].border = Border(
+            left=Side(style="double"),
+            top=Side(style="double"),
+        )
+        set_border(ws, "A1:C3", outline="thick")
+
+        # Outer edges are thick
+        assert ws["A1"].border.left.style == "thick"
+
+        # Inner: style defaults to "thin" (from base style param), overrides existing
+        center = ws["B2"]
+        assert center.border.left.style == "thin"
+        assert center.border.top.style == "thin"
+
+    def test_none_side_preserves_existing(self, ws):
+        """Explicitly passing Side(style=None) preserves existing border."""
+        ws["B2"].border = Border(left=Side(style="thick", color="FF0000"))
+        set_border(ws, "B2", left=Side(style=None))
+
+        cell = ws["B2"]
+        assert cell.border.left.style == "thick"
+        assert cell.border.left.color.rgb == "00FF0000"

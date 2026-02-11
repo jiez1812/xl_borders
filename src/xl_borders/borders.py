@@ -26,6 +26,23 @@ type SideSpec = Side | str | tuple[str, str] | None
 type CellRange = str | tuple[int, int] | tuple[tuple[int, int], tuple[int, int]]
 
 
+def _merge_side(new: Side, existing: Side | None) -> Side:
+    """Merge a new Side with an existing Side on a cell.
+
+    - If *new* has no style, keep *existing* entirely (don't overwrite).
+    - If *new* has a style but no color, use the new style with the
+      existing side's color (preserve color).
+    - Otherwise use *new* as-is.
+    """
+    if existing is None:
+        return new
+    if new.style is None:
+        return existing
+    if new.color is None and existing.color is not None:
+        return Side(style=new.style, color=existing.color)
+    return new
+
+
 def _resolve_side(spec: SideSpec, base_color: str | None) -> Side | None:
     """Convert a SideSpec shorthand into a Side object.
 
@@ -85,43 +102,69 @@ def set_border(
     horizontal: str | None = None,
     vertical: str | None = None,
 ) -> None:
-    """Apply borders to a rectangular cell range, similar to Excel VBA Range.Borders.
+    """Apply borders to a rectangular cell range.
 
-    Parameters resolve in layers (lowest to highest priority):
-        1. ``style`` + ``color`` -- base default for all 6 sides
-        2. ``custom`` -- tuple of weight ints overriding all 6 sides
-        3. ``outline`` / ``inside`` -- override outer / inner groups
-        4. ``horizontal`` / ``vertical`` -- override by orientation
-        5. Individual side params -- highest priority
+    Examples::
 
-    Individual side params accept shorthand in addition to ``Side``:
-        - ``str`` -- style name (inherits base ``color``)
-        - ``(str, str)`` -- ``(style, color)`` tuple
-        - ``Side`` -- full control
+        # All borders thin (default)
+        set_border(ws, "A1:D5")
+
+        # All borders thick and red
+        set_border(ws, "A1:D5", style="thick", color="FF0000")
+
+        # Thick outline, thin inner grid
+        set_border(ws, "A1:D5", outline="thick", inside="thin")
+
+        # Only horizontal lines
+        set_border(ws, "A1:D5", horizontal="thin", vertical=None)
+
+        # Thick bottom edge, everything else thin
+        set_border(ws, "A1:D5", bottom="thick")
+
+        # CSS-like shorthand: (top, right, bottom, left)
+        set_border(ws, "A1:D5", custom=(3, 1, 3, 1))
+
+        # Using numeric coordinates instead of range string
+        set_border(ws, (1, 1))                          # single cell B1
+        set_border(ws, ((1, 1), (5, 4)))                # same as "A1:D5"
 
     Args:
         ws: The openpyxl Worksheet to modify.
-        cell_range: Range to apply borders to. Accepts:
-            - ``str`` -- Excel-style range (e.g. ``"A1:D5"``, ``"B2"``)
-            - ``(row, col)`` -- single cell by row/col numbers
-            - ``((min_row, min_col), (max_row, max_col))`` -- numeric range
-        left: Side spec for the left edge.
-        right: Side spec for the right edge.
-        top: Side spec for the top edge.
-        bottom: Side spec for the bottom edge.
-        inner_horizontal: Side spec for inner horizontal lines.
-        inner_vertical: Side spec for inner vertical lines.
-        style: Default border style name applied to all sides.
-            Common values: "thin", "thick", "medium", "dashed", "dotted", "double".
-        color: Default border color (hex string, e.g. "FF0000") applied to all sides.
-        custom: Tuple of weight integers in CSS-like order:
-            ``(top, right, bottom, left, inner_horizontal, inner_vertical)``.
-            Length must be 4 (outer only; inner defaults to 0) or 6.
-            Weight mapping: 0=none, 1=thin, 2=medium, 3=thick.
-        outline: Style name applied to all 4 outer edges.
-        inside: Style name applied to inner_horizontal and inner_vertical.
-        horizontal: Style name applied to top, bottom, and inner_horizontal.
-        vertical: Style name applied to left, right, and inner_vertical.
+        cell_range: Target range. Accepts an Excel-style string (``"A1:D5"``),
+            a ``(row, col)`` tuple for a single cell, or a
+            ``((min_row, min_col), (max_row, max_col))`` tuple for a range.
+        style: Default border style for all sides. Defaults to ``"thin"``.
+            Values: ``"thin"``, ``"medium"``, ``"thick"``, ``"dashed"``,
+            ``"dotted"``, ``"double"``, etc.
+        color: Default border color as a hex string (e.g. ``"FF0000"`` for
+            red). Applied to all sides unless overridden.
+
+    Group overrides (override ``style`` for a group of sides):
+        outline: Set all 4 outer edges (left, right, top, bottom).
+        inside: Set both inner grid lines (inner_horizontal, inner_vertical).
+        horizontal: Set top, bottom, and inner_horizontal.
+        vertical: Set left, right, and inner_vertical.
+
+    Individual side overrides (highest priority, override everything above):
+        left: Left edge only.
+        right: Right edge only.
+        top: Top edge only.
+        bottom: Bottom edge only.
+        inner_horizontal: Inner horizontal lines only.
+        inner_vertical: Inner vertical lines only.
+
+        Each accepts a style name ``str``, a ``(style, color)`` tuple,
+        or an ``openpyxl.styles.Side`` object for full control.
+
+    CSS-like shorthand:
+        custom: Tuple of weight integers in ``(top, right, bottom, left)``
+            order (4 values, inner lines default to none) or
+            ``(top, right, bottom, left, inner_h, inner_v)`` (6 values).
+            Weights: 0=none, 1=thin, 2=medium, 3=thick.
+
+    Priority (lowest to highest):
+        ``style/color`` < ``custom`` < ``outline/inside`` <
+        ``horizontal/vertical`` < individual sides.
     """
     # --- Layer 1: base default (style + color) ---
     sides: dict[str, Side] = {k: Side(style=style, color=color) for k in (
@@ -188,10 +231,19 @@ def set_border(
     for row in range(min_row, max_row + 1):
         for col in range(min_col, max_col + 1):
             cell = ws.cell(row=row, column=col)
+            existing = cell.border
 
             cell.border = Border(
-                left=s_left if col == min_col else s_iv,
-                right=s_right if col == max_col else s_iv,
-                top=s_top if row == min_row else s_ih,
-                bottom=s_bottom if row == max_row else s_ih,
+                left=_merge_side(
+                    s_left if col == min_col else s_iv, existing.left,
+                ),
+                right=_merge_side(
+                    s_right if col == max_col else s_iv, existing.right,
+                ),
+                top=_merge_side(
+                    s_top if row == min_row else s_ih, existing.top,
+                ),
+                bottom=_merge_side(
+                    s_bottom if row == max_row else s_ih, existing.bottom,
+                ),
             )
